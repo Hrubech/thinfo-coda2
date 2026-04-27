@@ -33,6 +33,7 @@ tp_devsecops/
 │   ├── app.py                 ← API Flask vulnérable à auditer
 │   ├── requirements.txt       ← dépendances Python
 │   └── Dockerfile             ← image Docker
+├── rapport_template.md        ← template de rapport
 └── grille_evaluation.md       ← critères de notation
 ```
 
