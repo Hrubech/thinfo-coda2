@@ -1,0 +1,7 @@
+# Dépendances de l'application Krypto SAS
+# Version de production actuelle
+
+Flask==2.0.1
+Werkzeug==2.0.1
+requests==2.25.1
+urllib3==1.26.4
