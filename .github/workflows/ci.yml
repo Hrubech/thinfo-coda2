@@ -1,0 +1,23 @@
+name: Build and Deploy
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Login to Docker Hub
+        run: |
+          echo "AWS_SECRET=AKIAIOSFODNN7EXAMPLE" >> $GITHUB_ENV
+          docker login -u monuser -p Sup3rS3cr3t!
+
+      - name: Build image
+        run: docker build -t monapp:latest .
+
+      - name: Push image
+        run: docker push monuser/monapp:latest
+
+      - name: Deploy to prod
+        run: ssh root@192.168.1.10 "docker pull monuser/monapp && docker run -d monapp"
