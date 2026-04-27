@@ -1,0 +1,73 @@
+name: Secure Build and Deploy
+
+# CORRECTION A : on restreint le déclenchement à la branche main uniquement
+# Déclencher sur tous les push expose le pipeline à des branches non relues
+on:
+  push:
+    branches: [main]
+
+# CORRECTION B : moindre privilège sur le GITHUB_TOKEN
+# Par défaut le token a des droits write sur tout le repo
+# On déclare uniquement ce dont on a besoin
+permissions:
+  contents: read    # checkout du code seulement
+  packages: write   # push sur GHCR si utilisé
+
+jobs:
+  security-checks:
+    runs-on: ubuntu-latest
+    steps:
+      # Épingler les actions à un hash de commit (supply chain hardening)
+      # CORRECTION : @v3 peut pointer vers un tag modifié par un attaquant
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # CORRECTION C — SAST : analyse statique du code Python
+      # Bandit détecte shell=True (B602), pickle (B301), debug=True (B201), 0.0.0.0 (B104)
+      - name: SAST — Bandit
+        run: |
+          pip install bandit
+          bandit -r app/ -ll -f json -o bandit-report.json
+        continue-on-error: false   # echec si sévérité HIGH ou CRITICAL
+
+      # CORRECTION C — SCA : analyse des dépendances (CVEs NVD)
+      - name: SCA — pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r app/requirements.txt --format json -o pip-audit-report.json
+
+      # Build de l'image taguée avec le SHA du commit (pas 'latest' — immutable tag)
+      - name: Build image
+        run: docker build -t monapp:${{ github.sha }} ./app
+
+      # CORRECTION C — Scan de l'image Docker avant tout push
+      # exit-code: 1 bloque le pipeline si une CVE CRITICAL ou HIGH est trouvée
+      - name: Container scan — Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: monapp:${{ github.sha }}
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          format: 'table'
+
+      # CORRECTION A : les credentials viennent des GitHub Secrets, jamais du YAML
+      # --password-stdin évite l'exposition dans ps aux et les logs de processus
+      - name: Login to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | \
+          docker login -u "${{ secrets.DOCKER_USER }}" --password-stdin
+
+      - name: Push image
+        run: docker push monuser/monapp:${{ github.sha }}
+
+      # CORRECTION A+B : SSH avec clé dédiée stockée en Secret
+      # Utilisateur 'deploy' non-root avec sudo limité au strict nécessaire
+      - name: Deploy to prod
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: deploy                        # CORRECTION : plus de root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}     # CORRECTION : clé en Secret
+          script: |
+            docker pull monuser/monapp:${{ github.sha }}
+            docker stop monapp-current || true
+            docker run -d --name monapp-current monuser/monapp:${{ github.sha }}
